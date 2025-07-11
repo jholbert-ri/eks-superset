@@ -81,6 +81,33 @@ export class SupersetInfraStack extends Stack {
       endpointAccess: eks.EndpointAccess.PUBLIC_AND_PRIVATE,
     });
 
+    /*─────── Agregar usuarios al aws-auth ConfigMap ────────*/
+    // Agregar el rol de SSO DevOps para acceso kubectl
+    this.cluster.awsAuth.addRoleMapping(
+      iam.Role.fromRoleArn(
+        this,
+        "DevOpsSSORoleRef",
+        "arn:aws:iam::730335418300:role/AWSReservedSSO_Devops_f26912c48bab8699"
+      ),
+      {
+        groups: ["system:masters"],
+        username: "devops-sso-user",
+      }
+    );
+
+    // Agregar el usuario INFRA-BETA-USER también
+    this.cluster.awsAuth.addUserMapping(
+      iam.User.fromUserArn(
+        this,
+        "InfraBetaUserRef",
+        "arn:aws:iam::730335418300:user/INFRA-BETA-USER"
+      ),
+      {
+        groups: ["system:masters"],
+        username: "infra-beta-user",
+      }
+    );
+
     /*─────── Fargate profiles & execution role ────*/
     const execRole = new iam.Role(this, "FargateExecutionRole", {
       assumedBy: new iam.ServicePrincipal("eks-fargate-pods.amazonaws.com"),
@@ -156,6 +183,7 @@ export class SupersetInfraStack extends Stack {
       metadata: { name: "superset" },
     });
 
+    // Crear secret simple para testing
     this.cluster
       .addManifest("SupersetDBUriSecret", {
         apiVersion: "v1",
@@ -163,8 +191,10 @@ export class SupersetInfraStack extends Stack {
         metadata: { name: "superset-db-uri", namespace: "superset" },
         type: "Opaque",
         stringData: {
-          SQLALCHEMY_DATABASE_URI: `postgresql://superset:{{resolve:secretsmanager:${this.dbSecret.secretArn}:SecretString:password}}@${this.database.instanceEndpoint.hostname}:5432/superset`,
-          SECRET_KEY: `{{resolve:secretsmanager:${this.flaskSecret.secretArn}:SecretString:SECRET_KEY}}`,
+          DB_HOST: this.database.instanceEndpoint.hostname,
+          DB_PORT: "5432",
+          DB_NAME: "superset",
+          DB_USER: "superset",
         },
       })
       .node.addDependency(ns);
@@ -193,6 +223,24 @@ export class SupersetInfraStack extends Stack {
     new cdk.CfnOutput(this, "SupersetFlaskSecretArn", {
       value: this.flaskSecret.secretArn,
       exportName: "SupersetFlaskSecretArn",
+    });
+
+    new cdk.CfnOutput(this, "SupersetDBHost", {
+      value: this.database.instanceEndpoint.hostname,
+      exportName: "SupersetDBHost",
+    });
+
+    /*────────── Test Manifest ─────*/
+    const testManifest = this.cluster.addManifest("TestManifest", {
+      apiVersion: "v1",
+      kind: "ConfigMap",
+      metadata: {
+        name: "test-config",
+        namespace: "default",
+      },
+      data: {
+        "test.txt": "This is a test from InfraStack",
+      },
     });
   }
 }

@@ -12,6 +12,8 @@ export interface SupersetAppStackProps extends SupersetEksStackProps {
   dbSecret: secretsmanager.Secret;
   flaskSecret: secretsmanager.Secret;
   albControllerChart: eks.HelmChart;
+  dbSecretArn: string;
+  flaskSecretArn: string;
 }
 
 export class SupersetAppStack extends Stack {
@@ -34,14 +36,17 @@ export class SupersetAppStack extends Stack {
 import os
 from flask_appbuilder.security.manager import AUTH_DB
 
+# Security
+SECRET_KEY = '1Z9Fh5j6nBAzS6gQyLxqCUujWUvR3ifpakl/ZICshlgSp1LaffD0CDM+vBJ3UWnO'
+
 # Database configuration
 SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI')
 
 # Redis configuration
-REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
-REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_HOST = 'redis'
+REDIS_PORT = 6379
 
-# Cache configuration
+# Cache configuration  
 CACHE_CONFIG = {
     'CACHE_TYPE': 'RedisCache',
     'CACHE_DEFAULT_TIMEOUT': 300,
@@ -49,32 +54,6 @@ CACHE_CONFIG = {
     'CACHE_REDIS_HOST': REDIS_HOST,
     'CACHE_REDIS_PORT': REDIS_PORT,
     'CACHE_REDIS_DB': 1,
-}
-
-# Celery configuration
-class CeleryConfig:
-    broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
-    imports = (
-        "superset.sql_lab",
-        "superset.tasks.cache",
-    )
-    result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
-    task_annotations = {
-        "sql_lab.get_sql_results": {
-            "rate_limit": "100/s",
-        },
-    }
-
-CELERY_CONFIG = CeleryConfig
-
-# Security
-SECRET_KEY = os.getenv('SECRET_KEY')
-WTF_CSRF_ENABLED = True
-WTF_CSRF_TIME_LIMIT = None
-
-# Feature flags
-FEATURE_FLAGS = {
-    "ENABLE_TEMPLATE_PROCESSING": True,
 }
 
 # Auth configuration
@@ -87,11 +66,11 @@ ENABLE_PROXY_FIX = True
 
 # Logging
 LOG_LEVEL = "INFO"
-        `,
+`,
       },
     });
 
-    /*───────────────────────────── Redis Deployment ──────────────────────────*/
+    /*───────────────────────────── Simple Redis Deployment ──────────────────────────*/
     const redisDeployment = props.cluster.addManifest("RedisDeployment", {
       apiVersion: "apps/v1",
       kind: "Deployment",
@@ -117,35 +96,7 @@ LOG_LEVEL = "INFO"
               {
                 name: "redis",
                 image: "redis:7-alpine",
-                ports: [
-                  {
-                    containerPort: 6379,
-                  },
-                ],
-                resources: {
-                  requests: {
-                    memory: "256Mi",
-                    cpu: "250m",
-                  },
-                  limits: {
-                    memory: "512Mi",
-                    cpu: "500m",
-                  },
-                },
-                livenessProbe: {
-                  tcpSocket: {
-                    port: 6379,
-                  },
-                  initialDelaySeconds: 30,
-                  timeoutSeconds: 5,
-                },
-                readinessProbe: {
-                  tcpSocket: {
-                    port: 6379,
-                  },
-                  initialDelaySeconds: 5,
-                  timeoutSeconds: 1,
-                },
+                ports: [{ containerPort: 6379 }],
               },
             ],
           },
@@ -153,291 +104,186 @@ LOG_LEVEL = "INFO"
       },
     });
 
-    /*───────────────────────────── Redis Service ──────────────────────────*/
-    const redisService = props.cluster.addManifest("RedisService", {
-      apiVersion: "v1",
-      kind: "Service",
-      metadata: {
-        name: "redis",
-        namespace: "superset",
-      },
-      spec: {
-        selector: {
-          app: "redis",
-        },
-        ports: [
-          {
-            port: 6379,
-            targetPort: 6379,
+    /*───────────────────────────── Superset Init Job ────────────────────────────*/
+    const initJob = new eks.KubernetesManifest(this, "SupersetInitJob", {
+      cluster: props.cluster,
+      manifest: [
+        {
+          apiVersion: "batch/v1",
+          kind: "Job",
+          metadata: {
+            name: "superset-init",
+            namespace: "superset",
           },
-        ],
-      },
-    });
-
-    /*───────────────────────────── Init Job ────────────────────────────────*/
-    const initJob = props.cluster.addManifest("SupersetInitJob", {
-      apiVersion: "batch/v1",
-      kind: "Job",
-      metadata: {
-        name: "superset-init",
-        namespace: "superset",
-      },
-      spec: {
-        template: {
           spec: {
-            restartPolicy: "Never",
-            containers: [
-              {
-                name: "superset-init",
-                image: "apache/superset:latest",
-                command: ["/bin/bash", "-c"],
-                args: [
-                  `
-                  echo "Iniciando configuración de Superset..."
-                  
-                  # Instalar driver de PostgreSQL
-                  pip install psycopg2-binary
-                  
-                  # Configurar Superset
-                  superset db upgrade
-                  
-                  # Crear usuario admin
-                  superset fab create-admin \\
-                    --username admin \\
-                    --firstname Admin \\
-                    --lastname User \\
-                    --email admin@superset.com \\
-                    --password admin123
-                  
-                  # Inicializar Superset
-                  superset init
-                  
-                  # Cargar ejemplos (opcional)
-                  superset load_examples
-                  
-                  echo "Configuración completada"
-                  `,
-                ],
-                envFrom: [
+            template: {
+              spec: {
+                restartPolicy: "OnFailure",
+                containers: [
                   {
-                    secretRef: {
-                      name: "superset-db-uri",
+                    name: "superset-init",
+                    image: "apache/superset:4.0.0",
+                    command: ["sh", "-c"],
+                    args: [
+                      "export SQLALCHEMY_DATABASE_URI=postgresql://superset:$DB_PASSWORD@$DB_HOST:5432/superset && superset db upgrade && superset init && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@superset.com --password admin123",
+                    ],
+                    env: [
+                      {
+                        name: "DB_HOST",
+                        value: props.database.instanceEndpoint.hostname,
+                      },
+                      {
+                        name: "DB_PASSWORD",
+                        value: "vO'b2?+bhyiD,quKc?s$6-QihQii{($x",
+                      },
+                      {
+                        name: "SUPERSET_CONFIG_PATH",
+                        value: "/etc/superset/superset_config.py",
+                      },
+                    ],
+                    volumeMounts: [
+                      {
+                        name: "superset-config",
+                        mountPath: "/etc/superset",
+                      },
+                    ],
+                  },
+                ],
+                volumes: [
+                  {
+                    name: "superset-config",
+                    configMap: {
+                      name: "superset-config",
                     },
                   },
                 ],
-                env: [
-                  {
-                    name: "SUPERSET_CONFIG_PATH",
-                    value: "/etc/superset/superset_config.py",
-                  },
-                  {
-                    name: "REDIS_HOST",
-                    value: "redis",
-                  },
-                  {
-                    name: "REDIS_PORT",
-                    value: "6379",
-                  },
-                ],
-                volumeMounts: [
-                  {
-                    name: "superset-config",
-                    mountPath: "/etc/superset",
-                  },
-                ],
-                resources: {
-                  requests: {
-                    memory: "1Gi",
-                    cpu: "500m",
-                  },
-                  limits: {
-                    memory: "2Gi",
-                    cpu: "1000m",
-                  },
-                },
               },
-            ],
-            volumes: [
-              {
-                name: "superset-config",
-                configMap: {
-                  name: "superset-config",
-                },
-              },
-            ],
+            },
           },
         },
-        backoffLimit: 3,
-      },
+      ],
     });
 
-    /*───────────────────────────── Superset Deployment ────────────────────*/
-    const supersetDeployment = props.cluster.addManifest("SupersetDeployment", {
-      apiVersion: "apps/v1",
-      kind: "Deployment",
-      metadata: {
-        name: "superset",
-        namespace: "superset",
-      },
-      spec: {
-        replicas: 2,
-        selector: {
-          matchLabels: {
-            app: "superset",
+    /*───────────────────────────── Superset Deployment ────────────────────────────*/
+    const supersetDeployment = new eks.KubernetesManifest(this, "SupersetDeployment", {
+      cluster: props.cluster,
+      manifest: [
+        {
+          apiVersion: "apps/v1",
+          kind: "Deployment",
+          metadata: {
+            name: "superset",
+            namespace: "superset",
+          },
+          spec: {
+            replicas: 1,
+            selector: {
+              matchLabels: {
+                app: "superset",
+              },
+            },
+            template: {
+              metadata: {
+                labels: {
+                  app: "superset",
+                },
+              },
+              spec: {
+                containers: [
+                  {
+                    name: "superset",
+                    image: "apache/superset:4.0.0",
+                    ports: [{ containerPort: 8088 }],
+                    command: ["sh", "-c"],
+                    args: [
+                      "export SQLALCHEMY_DATABASE_URI=postgresql://superset:$DB_PASSWORD@$DB_HOST:5432/superset && superset run -h 0.0.0.0 -p 8088",
+                    ],
+                    env: [
+                      {
+                        name: "DB_HOST",
+                        value: props.database.instanceEndpoint.hostname,
+                      },
+                      {
+                        name: "DB_PASSWORD",
+                        value: "vO'b2?+bhyiD,quKc?s$6-QihQii{($x",
+                      },
+                      {
+                        name: "SUPERSET_CONFIG_PATH",
+                        value: "/etc/superset/superset_config.py",
+                      },
+                    ],
+                    volumeMounts: [
+                      {
+                        name: "superset-config",
+                        mountPath: "/etc/superset",
+                      },
+                    ],
+                    readinessProbe: {
+                      httpGet: {
+                        path: "/health",
+                        port: 8088,
+                      },
+                      initialDelaySeconds: 30,
+                      periodSeconds: 10,
+                    },
+                  },
+                ],
+                volumes: [
+                  {
+                    name: "superset-config",
+                    configMap: {
+                      name: "superset-config",
+                    },
+                  },
+                ],
+              },
+            },
           },
         },
-        template: {
+      ],
+    });
+
+    /*───────────────────────────── Superset Service ────────────────────────────*/
+    const supersetService = new eks.KubernetesManifest(this, "SupersetService", {
+      cluster: props.cluster,
+      manifest: [
+        {
+          apiVersion: "v1",
+          kind: "Service",
           metadata: {
-            labels: {
-              app: "superset",
+            name: "superset",
+            namespace: "superset",
+            annotations: {
+              "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+              "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
             },
           },
           spec: {
-            containers: [
+            type: "LoadBalancer",
+            selector: {
+              app: "superset",
+            },
+            ports: [
               {
-                name: "superset",
-                image: "apache/superset:latest",
-                ports: [
-                  {
-                    containerPort: 8088,
-                  },
-                ],
-                command: ["/bin/bash", "-c"],
-                args: [
-                  `
-                  # Instalar driver de PostgreSQL
-                  pip install psycopg2-binary
-                  
-                  # Ejecutar Superset
-                  gunicorn \\
-                    --bind 0.0.0.0:8088 \\
-                    --workers 4 \\
-                    --worker-class gthread \\
-                    --threads 20 \\
-                    --timeout 60 \\
-                    --keep-alive 2 \\
-                    --max-requests 1000 \\
-                    --max-requests-jitter 100 \\
-                    --preload \\
-                    --limit-request-line 0 \\
-                    --limit-request-field_size 0 \\
-                    "superset.app:create_app()"
-                  `,
-                ],
-                env: [
-                  {
-                    name: "SUPERSET_ENV",
-                    value: "production",
-                  },
-                  {
-                    name: "SUPERSET_CONFIG_PATH",
-                    value: "/etc/superset/superset_config.py",
-                  },
-                  {
-                    name: "REDIS_HOST",
-                    value: "redis",
-                  },
-                  {
-                    name: "REDIS_PORT",
-                    value: "6379",
-                  },
-                ],
-                envFrom: [
-                  {
-                    secretRef: {
-                      name: "superset-db-uri",
-                    },
-                  },
-                ],
-                volumeMounts: [
-                  {
-                    name: "superset-config",
-                    mountPath: "/etc/superset",
-                  },
-                ],
-                resources: {
-                  requests: {
-                    memory: "2Gi",
-                    cpu: "1000m",
-                  },
-                  limits: {
-                    memory: "4Gi",
-                    cpu: "2000m",
-                  },
-                },
-                livenessProbe: {
-                  httpGet: {
-                    path: "/health",
-                    port: 8088,
-                  },
-                  initialDelaySeconds: 60,
-                  periodSeconds: 30,
-                  timeoutSeconds: 10,
-                  failureThreshold: 3,
-                },
-                readinessProbe: {
-                  httpGet: {
-                    path: "/health",
-                    port: 8088,
-                  },
-                  initialDelaySeconds: 30,
-                  periodSeconds: 10,
-                  timeoutSeconds: 5,
-                  failureThreshold: 3,
-                },
-              },
-            ],
-            volumes: [
-              {
-                name: "superset-config",
-                configMap: {
-                  name: "superset-config",
-                },
+                port: 80,
+                targetPort: 8088,
+                protocol: "TCP",
               },
             ],
           },
         },
-      },
+      ],
     });
 
-    /*───────────────────────────── Superset Service ───────────────────────*/
-    const supersetService = props.cluster.addManifest("SupersetService", {
-      apiVersion: "v1",
-      kind: "Service",
-      metadata: {
-        name: "superset",
-        namespace: "superset",
-        annotations: {
-          "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
-          "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-        },
-      },
-      spec: {
-        type: "LoadBalancer",
-        selector: {
-          app: "superset",
-        },
-        ports: [
-          {
-            port: 8088,
-            targetPort: 8088,
-            protocol: "TCP",
-          },
-        ],
-      },
-    });
-
-    /*───────────────────────────── Dependencias ────────────────────────────*/
-    redisService.node.addDependency(redisDeployment);
-    supersetConfig.node.addDependency(props.albControllerChart);
-    initJob.node.addDependency(redisService);
+    // Dependencias
     initJob.node.addDependency(supersetConfig);
     supersetDeployment.node.addDependency(initJob);
     supersetService.node.addDependency(supersetDeployment);
 
     /*───────────────────────────── Outputs ────────────────────────────────*/
     new cdk.CfnOutput(this, "SupersetURLCmd", {
-      value: "kubectl get svc -n superset superset -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+      value:
+        "kubectl get svc -n superset superset -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
       description: "Comando para obtener la URL de Superset",
     });
     new cdk.CfnOutput(this, "SupersetCredentials", {
@@ -454,3 +300,4 @@ LOG_LEVEL = "INFO"
     });
   }
 }
+
