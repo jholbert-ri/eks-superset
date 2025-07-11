@@ -1,0 +1,46 @@
+{
+  "vpc-provider:account=730335418300:filter.vpc-id=vpc-0072a792fee9ee196:region=sa-east-1:returnAsymmetricSubnets=true": {
+    "vpcId": "vpc-0072a792fee9ee196",
+    "vpcCidrBlock": "192.168.0.0/16",
+    "ownerAccountId": "730335418300",
+    "availabilityZones": [],
+    "subnetGroups": [
+      {
+        "name": "PrivateSubnet",
+        "type": "Private",
+        "subnets": [
+          {
+            "subnetId": "subnet-05dae43b2266280c4",
+            "cidr": "192.168.128.0/18",
+            "availabilityZone": "sa-east-1a",
+            "routeTableId": "rtb-0313e0433ec3b1cda"
+          },
+          {
+            "subnetId": "subnet-041d03eb541cc1fe0",
+            "cidr": "192.168.192.0/18",
+            "availabilityZone": "sa-east-1c",
+            "routeTableId": "rtb-0c94a88225effb190"
+          }
+        ]
+      },
+      {
+        "name": "PublicSubnet",
+        "type": "Public",
+        "subnets": [
+          {
+            "subnetId": "subnet-0344cdd68a325c94f",
+            "cidr": "192.168.0.0/18",
+            "availabilityZone": "sa-east-1a",
+            "routeTableId": "rtb-00b6d44ee8e75046d"
+          },
+          {
+            "subnetId": "subnet-088c8883ad1505bf8",
+            "cidr": "192.168.64.0/18",
+            "availabilityZone": "sa-east-1c",
+            "routeTableId": "rtb-0999f4a06d3463a67"
+          }
+        ]
+      }
+    ]
+  }
+}

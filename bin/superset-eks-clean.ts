@@ -1,20 +1,37 @@
 #!/usr/bin/env node
-import * as cdk from 'aws-cdk-lib';
-import { SupersetEksCleanStack } from '../lib/superset-eks-clean-stack';
+import * as cdk from "aws-cdk-lib";
+import { SupersetInfraStack } from "../lib/superset-infra-stack";
+import { SupersetAppStack, SupersetAppStackProps } from "../lib/superset-app-stack";
+import { AwsAccounts, AwsRegions, Environment, AwsVPC } from "../lib/constants";
 
 const app = new cdk.App();
-new SupersetEksCleanStack(app, 'SupersetEksCleanStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+/*────── Config común ─────*/
+const env = {
+  account: AwsAccounts.BETA,
+  region: AwsRegions.SAEAST1,
+};
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
-
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+/*────── Infraestructura ───*/
+const infra = new SupersetInfraStack(app, "SupersetInfraBetaV2", {
+  env,
+  environment: Environment.BETA,
+  vpcId: AwsVPC.BETA,
 });
+
+/*────── Aplicación ────────*/
+const appProps: SupersetAppStackProps = {
+  env,
+  environment: Environment.BETA,
+  vpcId: AwsVPC.BETA,
+  cluster: infra.cluster,
+  database: infra.database,
+  dbSecret: infra.dbSecret,
+  flaskSecret: infra.flaskSecret,
+  albControllerChart: infra.albControllerChart,
+};
+
+const appStack = new SupersetAppStack(app, "SupersetAppBetaV3", appProps);
+
+/* El AppStack depende explícitamente del InfraStack */
+appStack.addDependency(infra);
