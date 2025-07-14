@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 import { AwsAccounts, AwsRegions, AwsVPC, Environment } from "../lib/constants";
 import { SupersetMinimalStack } from "../lib/eks-minimal";
+import { SupersetMinimalStackV2 } from "../lib/eks-minimal-v2";
 import {
   SupersetAppStack,
   SupersetAppStackProps,
@@ -43,6 +44,12 @@ const appStack = new SupersetAppStack(app, "SupersetAppBetaV3", appProps);
 appStack.addDependency(infra);
 
 new SupersetMinimalStack(app, "SupersetMinimalStack", {
+  env: { account: AwsAccounts.BETA, region: AwsRegions.SAEAST1 },
+  existingVpcId: AwsVPC.BETA,
+});
+
+// Despliegue de la versión 2
+new SupersetMinimalStackV2(app, "SupersetMinimalStackV2", {
   env: { account: AwsAccounts.BETA, region: AwsRegions.SAEAST1 },
   existingVpcId: AwsVPC.BETA,
 });

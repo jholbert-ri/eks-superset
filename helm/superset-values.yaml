@@ -1,0 +1,32 @@
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  # port: 80
+  # targetPort: 8088
+
+postgresql:
+  enabled: false
+
+secretEnv:
+  create: false
+envFromSecret: superset-db        # <- tu Secret con DB_* y SECRET_KEY
+
+configOverrides:
+  database: |
+    import os
+    SQLALCHEMY_DATABASE_URI = os.getenv("SQLALCHEMY_DATABASE_URI")
+    SECRET_KEY = os.getenv("SUPERSET_SECRET_KEY")
+
+supersetNode:                     # ← nivel raíz (sin espacios delante)
+  adminUser:
+    username: admin
+    firstname: Superset
+    lastname: Admin
+    email: admin@example.com
+    password: admin123
+  connections:
+    redis_host: superset-redis-master
+    redis_port: 6379
+    redis_cache_db: 1            # results-backend
+    redis_celery_db: 0

@@ -8,21 +8,21 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 
 /** Props: ID de la VPC existente */
-export interface SupersetMinimalStackProps extends cdk.StackProps {
+export interface SupersetMinimalStackV2Props extends cdk.StackProps {
   existingVpcId: string;
 }
 
-export class SupersetMinimalStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: SupersetMinimalStackProps) {
+export class SupersetMinimalStackV2 extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: SupersetMinimalStackV2Props) {
     super(scope, id, props);
 
     /*────────── VPC ──────────*/
-    const vpc = ec2.Vpc.fromLookup(this, "SupersetVpc", {
+    const vpc = ec2.Vpc.fromLookup(this, "SupersetVpcV2", {
       vpcId: props.existingVpcId,
     });
 
     /*────────── EKS Cluster ──*/
-    const cluster = new eks.Cluster(this, "SupersetCluster", {
+    const cluster = new eks.Cluster(this, "SupersetClusterV2", {
       version: eks.KubernetesVersion.V1_29,
       vpc,
       vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
@@ -31,7 +31,7 @@ export class SupersetMinimalStack extends cdk.Stack {
         ec2.InstanceClass.T3,
         ec2.InstanceSize.MEDIUM
       ),
-      kubectlLayer: new KubectlV29Layer(this, "KubectlLayer"),
+      kubectlLayer: new KubectlV29Layer(this, "KubectlLayerV2"),
       endpointAccess: eks.EndpointAccess.PUBLIC,
     });
 
@@ -49,14 +49,14 @@ export class SupersetMinimalStack extends cdk.Stack {
     );
 
     /*────────── Namespace ────*/
-    const ns = cluster.addManifest("SupersetNS", {
+    const ns = cluster.addManifest("SupersetNSV2", {
       apiVersion: "v1",
       kind: "Namespace",
-      metadata: { name: "superset" },
+      metadata: { name: "superset-v2" },
     });
 
     /*────────── Secret BD (K8s) ─────────*/
-    const pgPwd = new secretsmanager.Secret(this, "PgPassword", {
+    const pgPwd = new secretsmanager.Secret(this, "PgPasswordV2", {
       generateSecretString: {
         secretStringTemplate: JSON.stringify({ username: "superset" }),
         generateStringKey: "password",
@@ -65,12 +65,12 @@ export class SupersetMinimalStack extends cdk.Stack {
       },
     });
 
-    const pwd =  pgPwd.secretValueFromJson("password").unsafeUnwrap();
+    const pwd = pgPwd.secretValueFromJson("password").unsafeUnwrap();
 
-    const dbSecret = cluster.addManifest("SupersetDbSecret", {
+    const dbSecret = cluster.addManifest("SupersetDbSecretV2", {
       apiVersion: "v1",
       kind: "Secret",
-      metadata: { name: "superset-db", namespace: "superset" },
+      metadata: { name: "superset-db", namespace: "superset-v2" },
       type: "Opaque",
       stringData: {
         DB_USER: "superset",
@@ -79,7 +79,7 @@ export class SupersetMinimalStack extends cdk.Stack {
         DB_NAME: "superset",
         DB_HOST: "postgres",
         DB_PORT: "5432",
-        SQLALCHEMY_DATABASE_URI: `postgresql+psycopg2://superset:${pwd}@postgres.superset.svc.cluster.local:5432/superset`,
+        SQLALCHEMY_DATABASE_URI: `postgresql+psycopg2://superset:${pwd}@postgres.superset-v2.svc.cluster.local:5432/superset`,
         SUPERSET_SECRET_KEY:
           "krG5BoMX+MzneoxDcWYXNQiV8bwuCQCLA+WwywWNDqkGoOiZL6QtaCAe",
         REDIS_HOST: "superset-redis-master",
@@ -92,10 +92,10 @@ export class SupersetMinimalStack extends cdk.Stack {
     dbSecret.node.addDependency(ns);
 
     /*────────── Postgres (StatefulSet + Svc) ─────*/
-    const postgres = cluster.addManifest("Postgres", {
+    const postgres = cluster.addManifest("PostgresV2", {
       apiVersion: "apps/v1",
       kind: "StatefulSet",
-      metadata: { name: "postgres", namespace: "superset" },
+      metadata: { name: "postgres", namespace: "superset-v2" },
       spec: {
         serviceName: "postgres",
         replicas: 1,
@@ -108,7 +108,6 @@ export class SupersetMinimalStack extends cdk.Stack {
                 name: "postgres",
                 image: "postgres:15-alpine",
                 ports: [{ containerPort: 5432 }],
-                // CORRECCIÓN: Usar variables específicas en lugar de envFrom
                 env: [
                   {
                     name: "POSTGRES_USER",
@@ -152,10 +151,10 @@ export class SupersetMinimalStack extends cdk.Stack {
     postgres.node.addDependency(dbSecret);
 
     cluster
-      .addManifest("PostgresSvc", {
+      .addManifest("PostgresSvcV2", {
         apiVersion: "v1",
         kind: "Service",
-        metadata: { name: "postgres", namespace: "superset" },
+        metadata: { name: "postgres", namespace: "superset-v2" },
         spec: {
           type: "ClusterIP",
           selector: { app: "postgres" },
@@ -165,9 +164,9 @@ export class SupersetMinimalStack extends cdk.Stack {
       .node.addDependency(postgres);
 
     /*────────── Output del Endpoint PostgreSQL ───*/
-    new cdk.CfnOutput(this, "PostgresService", {
-      value: "postgres.superset.svc.cluster.local:5432",
-      description: "DNS interno de Postgres para el chart de Superset",
+    new cdk.CfnOutput(this, "PostgresServiceV2", {
+      value: "postgres.superset-v2.svc.cluster.local:5432",
+      description: "DNS interno de Postgres para el chart de Superset V2",
     });
   }
-}
+} 
