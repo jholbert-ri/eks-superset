@@ -1,0 +1,26 @@
+# values.yaml
+
+replicaCount: 1
+
+image:
+  repository: apache/superset
+  tag: "4.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8088
+
+admin:
+  username: admin
+  password: admin123
+
+database:
+  secret: postgres-secret # Ajustado para coincidir con el deployment
+  host: postgres
+  port: 5432
+  name: superset
+
+supersetSecret:
+  name: superset-secret-key
+  key: SECRET_KEY

@@ -1,0 +1,73 @@
+# JobInit.yaml
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Añadimos un sufijo de fecha para hacer el nombre único
+  name: "{{ .Release.Name }}-init-db-{{ now | unixEpoch }}"
+  labels:
+    app: superset
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+  # --- CORRECCIÓN CLAVE ---
+  # Se añaden "hooks" de Helm. Esto le dice a Helm que trate este archivo
+  # de manera especial para evitar el error de "campo inmutable".
+  # - post-install: Se ejecuta después de una nueva instalación.
+  # - post-upgrade: Se ejecuta después de una actualización.
+  # - hook-succeeded: Elimina este Job una vez que termina con éxito.
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+    "helm.sh/hook-weight": "-5"
+spec:
+  # Se añade un límite de tiempo para que el Job no se quede colgado indefinidamente
+  activeDeadlineSeconds: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Añade un retraso para esperar que PostgreSQL esté listo
+              echo "Waiting for database to be ready..."
+              sleep 20
+              echo "Initializing database..."
+              export SQLALCHEMY_DATABASE_URI="postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@{{ .Values.database.host }}:{{ .Values.database.port }}/{{ .Values.database.name}}"
+              superset db upgrade
+              echo "Creating admin user..."
+              superset fab create-admin \
+                --username {{ .Values.admin.username }} \
+                --password {{ .Values.admin.password }} \
+                --firstname Admin --lastname User \
+                --email {{ .Values.admin.email }}
+              echo "Initializing Superset..."
+              superset init
+              echo "Initialization complete."
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secret }}
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secret }}
+                  key: DB_PASSWORD
+            - name: SUPERSET_CONFIG_PATH
+              value: /app/pythonpath/superset_config.py
+          volumeMounts:
+            - name: superset-config
+              mountPath: /app/pythonpath
+      volumes:
+        - name: superset-config
+          configMap:
+            name: superset-config
