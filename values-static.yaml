@@ -1,0 +1,21 @@
+postgresql:
+  enabled: false
+
+# Este campo sí lo recoge el Job, los pods web y worker
+extraPipPackages:
+  - psycopg2-binary==2.9.9
+
+secretEnv:
+  create: true
+
+configOverrides:
+  secret: |
+    SECRET_KEY = "{{ .Values.secretKey }}"
+
+supersetNode:
+  connections:
+    db_host: "postgres.superset-v2.svc.cluster.local"
+    db_port: "5432"
+    db_user: ""        # ← se pasan por --set
+    db_pass: ""
+    db_name: "superset"

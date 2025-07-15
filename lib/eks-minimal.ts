@@ -65,6 +65,7 @@ export class SupersetMinimalStack extends cdk.Stack {
       },
     });
 
+    // Secreto principal para la base de datos
     const dbSecret = cluster.addManifest("SupersetDbSecret", {
       apiVersion: "v1",
       kind: "Secret",
@@ -74,11 +75,24 @@ export class SupersetMinimalStack extends cdk.Stack {
         DB_USER: "superset",
         DB_PASSWORD: pgPwd.secretValueFromJson("password").unsafeUnwrap(),
         DB_NAME: "superset",
-        DB_HOST: "postgres",
+        DB_HOST: "postgres.superset.svc.cluster.local",
         DB_PORT: "5432",
       },
     });
     dbSecret.node.addDependency(ns);
+
+    // Secreto para Superset con la SECRET_KEY y conexión de BD
+    const supersetSecret = cluster.addManifest("SupersetSecret", {
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: { name: "superset-env", namespace: "superset" },
+      type: "Opaque",
+      stringData: {
+        SECRET_KEY: "superset-secret-key-change-me-in-production",
+        SQLALCHEMY_DATABASE_URI: `postgresql://superset:${pgPwd.secretValueFromJson("password").unsafeUnwrap()}@postgres.superset.svc.cluster.local:5432/superset`,
+      },
+    });
+    supersetSecret.node.addDependency(ns);
 
     /*────────── Postgres (StatefulSet + Svc) ─────*/
     const postgres = cluster.addManifest("Postgres", {
