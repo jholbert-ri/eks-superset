@@ -3,7 +3,6 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as eks from "aws-cdk-lib/aws-eks";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
 import { Construct } from "constructs";
 
@@ -55,121 +54,35 @@ export class SupersetMinimalStack extends cdk.Stack {
       metadata: { name: "superset" },
     });
 
-    /*────────── Secret BD (K8s) ─────────*/
-    const pgPwd = new secretsmanager.Secret(this, "PgPassword", {
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({ username: "superset" }),
-        generateStringKey: "password",
-        excludePunctuation: true,
-        passwordLength: 24,
-      },
+    /*────────── Output del Cluster ───*/
+    new cdk.CfnOutput(this, "ClusterName", {
+      value: cluster.clusterName,
+      description: "Nombre del cluster EKS para configurar kubectl",
     });
 
-    // Secreto principal para la base de datos
-    const dbSecret = cluster.addManifest("SupersetDbSecret", {
-      apiVersion: "v1",
-      kind: "Secret",
-      metadata: { name: "superset-db", namespace: "superset" },
-      type: "Opaque",
-      stringData: {
-        DB_USER: "superset",
-        DB_PASSWORD: pgPwd.secretValueFromJson("password").unsafeUnwrap(),
-        DB_NAME: "superset",
-        DB_HOST: "postgres.superset.svc.cluster.local",
-        DB_PORT: "5432",
-      },
+    new cdk.CfnOutput(this, "ClusterEndpoint", {
+      value: cluster.clusterEndpoint,
+      description: "Endpoint del cluster EKS",
     });
-    dbSecret.node.addDependency(ns);
 
-    // Secreto para Superset con la SECRET_KEY y conexión de BD
-    const supersetSecret = cluster.addManifest("SupersetSecret", {
-      apiVersion: "v1",
-      kind: "Secret",
-      metadata: { name: "superset-env", namespace: "superset" },
-      type: "Opaque",
-      stringData: {
-        SECRET_KEY: "superset-secret-key-change-me-in-production",
-        SQLALCHEMY_DATABASE_URI: `postgresql://superset:${pgPwd.secretValueFromJson("password").unsafeUnwrap()}@postgres.superset.svc.cluster.local:5432/superset`,
-      },
+    new cdk.CfnOutput(this, "ClusterSecurityGroupId", {
+      value: cluster.clusterSecurityGroup.securityGroupId,
+      description: "ID del Security Group del cluster EKS",
     });
-    supersetSecret.node.addDependency(ns);
 
-    /*────────── Postgres (StatefulSet + Svc) ─────*/
-    const postgres = cluster.addManifest("Postgres", {
-      apiVersion: "apps/v1",
-      kind: "StatefulSet",
-      metadata: { name: "postgres", namespace: "superset" },
-      spec: {
-        serviceName: "postgres",
-        replicas: 1,
-        selector: { matchLabels: { app: "postgres" } },
-        template: {
-          metadata: { labels: { app: "postgres" } },
-          spec: {
-            containers: [
-              {
-                name: "postgres",
-                image: "postgres:15-alpine",
-                ports: [{ containerPort: 5432 }],
-                // CORRECCIÓN: Usar variables específicas en lugar de envFrom
-                env: [
-                  {
-                    name: "POSTGRES_USER",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: "superset-db",
-                        key: "DB_USER"
-                      }
-                    }
-                  },
-                  {
-                    name: "POSTGRES_PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: "superset-db",
-                        key: "DB_PASSWORD"
-                      }
-                    }
-                  },
-                  {
-                    name: "POSTGRES_DB",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: "superset-db",
-                        key: "DB_NAME"
-                      }
-                    }
-                  }
-                ],
-                volumeMounts: [
-                  { name: "pgdata", mountPath: "/var/lib/postgresql/data" },
-                ],
-              },
-            ],
-            volumes: [{ name: "pgdata", emptyDir: {} }],
-          },
-        },
-      },
+    new cdk.CfnOutput(this, "ClusterRoleArn", {
+      value: cluster.role.roleArn,
+      description: "ARN del rol IAM del cluster EKS",
     });
-    postgres.node.addDependency(dbSecret);
 
-    cluster
-      .addManifest("PostgresSvc", {
-        apiVersion: "v1",
-        kind: "Service",
-        metadata: { name: "postgres", namespace: "superset" },
-        spec: {
-          type: "ClusterIP",
-          selector: { app: "postgres" },
-          ports: [{ port: 5432, targetPort: 5432 }],
-        },
-      })
-      .node.addDependency(postgres);
+    new cdk.CfnOutput(this, "NamespaceName", {
+      value: "superset",
+      description: "Nombre del namespace de Superset",
+    });
 
-    /*────────── Output del Endpoint PostgreSQL ───*/
-    new cdk.CfnOutput(this, "PostgresService", {
-      value: "postgres.superset.svc.cluster.local:5432",
-      description: "DNS interno de Postgres para el chart de Superset",
+    new cdk.CfnOutput(this, "VpcId", {
+      value: vpc.vpcId,
+      description: "ID de la VPC donde se desplegó el cluster",
     });
   }
 }

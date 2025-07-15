@@ -1,34 +1,53 @@
+# Namespace donde instalarás Superset
+namespace: superset
+
+# ─── Desactiva el PostgreSQL embebido ─────────────────────────
 postgresql:
-  enabled: false                 # Usamos tu Postgres externo
+  enabled: false
 
-# No crear secreto, usar el existente del CDK
-secretEnv:
-  create: false
+# ─── Usa la instancia RDS ─────────────────────────────────────
+externalDatabase:
+  type: postgres
+  host: superset-db.cpqy6c6oysbs.sa-east-1.rds.amazonaws.com   # endpoint RDS
+  port: 5432
+  database: superset                                           # nombre del esquema
+  username: postgres                                   # usuario
+  password: superset123                                  # ⚠️ opcional, ver Secret
+  sslmode: require                                             # Forzar SSL
 
-# Usar el secreto existente de Kubernetes para variables de entorno
-extraSecretEnv:
-  SECRET_KEY:
-    name: superset-env
-    key: SECRET_KEY
-  SQLALCHEMY_DATABASE_URI:
-    name: superset-env
-    key: SQLALCHEMY_DATABASE_URI
-
-# Configuración para instalar psycopg2-binary
-extraEnv:
-  PIP_ADDITIONAL_REQUIREMENTS: "psycopg2-binary==2.9.9"
-
-# Configuración de conexión simplificada
+# ─── Variables que irán al Secret `superset-env` ──────────────
 supersetNode:
   connections:
-    db_host: "postgres.superset.svc.cluster.local"
-    db_port: "5432"
-    db_user: "superset"
-    db_pass: "superset"  # Esto será sobrescrito por SQLALCHEMY_DATABASE_URI
-    db_name: "superset"
+    db_host: superset-db.cpqy6c6oysbs.sa-east-1.rds.amazonaws.com
+    db_port: 5432
+    db_user: postgres
+    db_pass: superset123          # ⚠️ idem, ver Secret
+    db_name: superset
+    db_sslmode: require           # Forzar SSL
 
-# Opcional LoadBalancer
-# service:
-#   type: LoadBalancer
-#   port: 80
-#   targetPort: 8088
+    redis_host: superset-redis-master.superset.svc.cluster.local
+    redis_port: 6379
+    redis_user: ""
+    redis_password: ""
+    redis_cache_db: 1
+    redis_celery_db: 2
+
+# ─── Resto de ajustes (sin cambios) ───────────────────────────
+configOverrides:
+  secret: |
+    import os
+    SECRET_KEY = 'QyMamYN07qmkPWIdCWKyymtpjq4UTAzDjnY8OCq/JO+EAzhBDflVCBLP'
+    # SSL Configuration for RDS
+    SQLALCHEMY_DATABASE_URI = f"postgresql+psycopg2://{os.environ['DB_USER']}:{os.environ['DB_PASS']}@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}?sslmode=require"
+
+bootstrapScript: |
+  #!/bin/bash
+  set -e
+  echo "Installing PostgreSQL driver..."
+  pip install --no-cache-dir psycopg2-binary
+  echo "Installing additional drivers..."
+  pip install --no-cache-dir pyhive
+  echo "Dependencies installed successfully"
+  if [ ! -f ~/bootstrap ]; then
+    echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap
+  fi
