@@ -47,7 +47,13 @@ bootstrapScript: |
   pip install --no-cache-dir psycopg2-binary
   echo "Installing additional drivers..."
   pip install --no-cache-dir pyhive
-  echo "Dependencies installed successfully"
+      echo "Dependencies installed successfully"
   if [ ! -f ~/bootstrap ]; then
     echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap
   fi
+
+# ─── Configuración del Service para ALB ─────────────────────────
+service:
+  type: ClusterIP  # Importante: debe ser ClusterIP para TargetGroupBinding
+  port: 8088
+  targetPort: 8088
