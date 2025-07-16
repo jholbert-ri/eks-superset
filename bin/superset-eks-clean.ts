@@ -2,11 +2,6 @@
 import * as cdk from "aws-cdk-lib";
 import { AwsAccounts, AwsRegions, AwsVPC, Environment } from "../lib/constants";
 import { SupersetMinimalStack } from "../lib/eks-minimal";
-import {
-  SupersetAppStack,
-  SupersetAppStackProps,
-} from "../lib/superset-app-stack";
-import { SupersetInfraStack } from "../lib/superset-infra-stack";
 
 const app = new cdk.App();
 
@@ -16,14 +11,30 @@ const env = {
   region: AwsRegions.SAEAST1,
 };
 
-/*────── Infraestructura ───*/
+// Nombre del cluster existente
+const existingClusterName =
+  "SupersetClusterB38A40B0-4c56592879f746fcb953cd4907ba80af";
+
+// Stack minimo solo para ALB
+new SupersetMinimalStack(app, "SupersetMinimalStack", {
+  existingVpcId: AwsVPC.BETA,
+  existingClusterName: existingClusterName,
+  env,
+  tags: {
+    Environment: Environment.BETA,
+    Project: "superset",
+  },
+});
+
+/* Comentado temporalmente mientras trabajamos con el stack mínimo
+────── Infraestructura ───
 const infra = new SupersetInfraStack(app, "SupersetInfraBetaV2", {
   env,
   environment: Environment.BETA,
   vpcId: AwsVPC.BETA,
 });
 
-/*────── Aplicación ────────*/
+────── Aplicación ────────
 const appProps: SupersetAppStackProps = {
   env,
   environment: Environment.BETA,
@@ -39,10 +50,6 @@ const appProps: SupersetAppStackProps = {
 
 const appStack = new SupersetAppStack(app, "SupersetAppBetaV3", appProps);
 
-/* El AppStack depende explícitamente del InfraStack */
+ El AppStack depende explícitamente del InfraStack 
 appStack.addDependency(infra);
-
-new SupersetMinimalStack(app, "SupersetMinimalStack", {
-  env: { account: AwsAccounts.BETA, region: AwsRegions.SAEAST1 },
-  existingVpcId: AwsVPC.BETA,
-});
+*/

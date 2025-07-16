@@ -32,6 +32,31 @@ supersetNode:
     redis_cache_db: 1
     redis_celery_db: 2
 
+# ─── Configuración del Service para ALB ─────────────────────────
+service:
+  type: ClusterIP  # Importante: debe ser ClusterIP para TargetGroupBinding
+  port: 8088
+  targetPort: 8088
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-port: "8088"
+
+# ─── Configuración de Ingress para ALB ─────────────────────────
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+  hosts:
+    - host: ""  # Dejamos vacío para que use el DNS del ALB
+      paths:
+        - path: /*
+          pathType: ImplementationSpecific
+
 # ─── Resto de ajustes (sin cambios) ───────────────────────────
 configOverrides:
   secret: |
@@ -51,9 +76,3 @@ bootstrapScript: |
   if [ ! -f ~/bootstrap ]; then
     echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap
   fi
-
-# ─── Configuración del Service para ALB ─────────────────────────
-service:
-  type: ClusterIP  # Importante: debe ser ClusterIP para TargetGroupBinding
-  port: 8088
-  targetPort: 8088
